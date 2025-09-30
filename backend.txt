@@ -1,0 +1,175 @@
+아이돌 덕질 게시판 (사람들이 회원을 가입하고, 로그인 한 후 아이돌 사진을 올릴 수 있는 게시판을 만들자?)
+
+
+# 홈페이지 모양 구상 
+
+<Header>
+게시판, 로그인, 회원가입
+왼쪽 정렬
+
+<body>
+게시글 작성 버튼
+게시글(작성자, 이미지, 설명, 삭제, 수정)
+가운데 정렬, 400x400 크기
+1열로 내림차순
+
+<footer>
+제작팀, 제작자 이름
+
+
+# 데이터베이스만들기
+post table ( id, title, pictur, comleted, created_at, updated_at, user_id)
+user table(id, user_name, password, email)
+
+
+
+
+
+
+
+# mysql의 테이블  from sqlalchemy import Column, Integer, String, Boolean, DateTime  from sqlalchemy.sql import func  from database import Base    
+class Todo(Base):  __tablename__ = "todos"   id = Column(Integer, primary_key=True, index=True, autoincrement=True)  title = Column(String(200), nullable=False, index=True) 
+description = Column(String(500), nullable=True)  completed = Column(Boolean, default=False, nullable=False)  created_at = Column(DateTime(timezone=True),  
+server_default=func.now())  updated_at = Column(DateTime(timezone=True), onupdate=func.now())    def __repr__(self): return f"<Todo(id={self.id}, title='{self.title}', completed={self.completed})>" 
+
+  ------------------------------------------------------------------  
+  상기 모델을    post table ( id, title, pictur, comleted, created_at, updated_at, user_id)   user table(id, user_name, password, email)  두 가지 테이블로 나누어서 모델을 만들고 싶고,  
+  이를 데이터베이스로 연결할 코드를 작성해줘. 
+  ------------------------------------------------------------------
+  
+백엔드 기본구조
+backend/
+ ├── database.py   👈 DB 연결 세팅
+ ├── models.py     👈 User, Post 모델 정의
+ ├── main.py       👈 실행 진입점 (테이블 생성)
+ └── requirements.txt
+
+------------------------------------------------------------------
+데이터베이스.py
+
+# database.py
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+# MySQL 연결 URL (본인 환경에 맞게 수정)
+DATABASE_URL = "mysql+pymysql://root:비밀번호@localhost:3306/idol_board"
+
+engine = create_engine(DATABASE_URL, echo=True)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+------------------------------------------------------------------
+모델.py 
+# models.py
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from database import Base
+
+# --------------------------
+# User 테이블
+# --------------------------
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_name = Column(String(50), nullable=False, unique=True, index=True)
+    password = Column(String(255), nullable=False)
+    email = Column(String(100), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # 관계 설정 (1:N)
+    posts = relationship("Post", back_populates="user")
+
+    def __repr__(self):
+        return f"<User(id={self.id}, user_name='{self.user_name}', email='{self.email}')>"
+
+# --------------------------
+# Post 테이블
+# --------------------------
+class Post(Base):
+    __tablename__ = "posts"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    title = Column(String(200), nullable=False, index=True)
+    picture = Column(String(500), nullable=True)  # 이미지 경로나 URL
+    completed = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True),
+                        server_default=func.now(),
+                        onupdate=func.now())
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # 관계 설정 (N:1)
+    user = relationship("User", back_populates="posts")
+
+    def __repr__(self):
+        return f"<Post(id={self.id}, title='{self.title}', user_id={self.user_id})>"
+
+------------------------------------------------------------------
+메인.py
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from typing import List
+
+import models, schemas
+from database import engine, get_db
+
+# DB 테이블 생성
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Idol Board API",
+    description="아이돌 덕질 게시판 백엔드",
+    version="1.0.0"
+)
+
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 루트 엔드포인트
+@app.get("/")
+async def root():
+    return {"message": "아이돌 덕질 게시판 API 서버 실행 중!"}
+
+# ---------------------------
+# Users 엔드포인트
+# ---------------------------
+@app.post("/users", response_model=schemas.UserResponse)
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    db_user = models.User(**user.dict())
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+@app.get("/users", response_model=List[schemas.UserResponse])
+def get_users(db: Session = Depends(get_db)):
+    return db.query(models.User).all()
+
+# ---------------------------
+# Posts 엔드포인트
+# ---------------------------
+@app.post("/posts", response_model=schemas.PostResponse)
+def create_post(post: schemas.PostCreate, db: Session = Depends(get_db)):
+    db_post = models.Post(**post.dict())
+    db.add(db_post)
+    db.commit()
+    db.refresh(db_post)
+    return db_post
+
+@app.get("/posts", response_model=List[schemas.PostResponse])
+def get_posts(db: Session = Depends(get_db)):
+    return db.query(models.Post).all()
+
+ 
