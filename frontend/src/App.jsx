@@ -8,29 +8,32 @@ export default function App() {
   // 게시글 관련 상태
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  // 전체 페이지 오류 메시지 (페이지 상단 고정)
+  const [error, setError] = useState(''); 
   
   // 인증 관련 상태
-  // 실제 앱에서는 JWT 등의 토큰을 저장해야 하지만, 여기서는 임시로 user 객체를 저장합니다.
   const [currentUser, setCurrentUser] = useState(null); 
 
   // 모달 상태
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false); // 🔑 로그인 모달
-  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false); // 🔑 회원가입 모달
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false); 
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false); 
   
   // 데이터 상태
   const [newPostData, setNewPostData] = useState({ 
-    // username: '익명의 사용자', // 이제 사용하지 않음 (currentUser.user_name 사용)
-    imageUrl: '', // 백엔드 Post 모델의 'picture' 필드에 해당
-    description: '', // 백엔드 Post 모델의 'title' 필드에 해당
+    imageUrl: '', 
+    description: '', 
   });
   const [selectedPost, setSelectedPost] = useState(null); 
   
   // 🔑 인증 데이터 상태
   const [loginData, setLoginData] = useState({ email: '', password: '' });
   const [registerData, setRegisterData] = useState({ user_name: '', email: '', password: '' });
+  
+  // 🔑 모달 내부 오류 상태 (개선된 부분)
+  const [loginError, setLoginError] = useState('');
+  const [registerError, setRegisterError] = useState('');
 
 
   // ------------------------------------
@@ -42,7 +45,7 @@ export default function App() {
     try {
       setLoading(true);
       const response = await axios.get(`${API_URL}/posts`);
-      setPosts(response.data.reverse()); // 최신순 (FastAPI가 정렬을 제공하지 않는다면 프론트에서 임시 처리)
+      setPosts(response.data.reverse()); 
       setError('');
     } catch (err) {
       setError('게시글을 불러오는 데 실패했습니다.');
@@ -68,7 +71,7 @@ export default function App() {
       await axios.post(`${API_URL}/posts`, {
         title: newPostData.description.trim(), 
         picture: newPostData.imageUrl.trim() || null, 
-        user_id: currentUser.id, // 🔑 현재 로그인된 사용자 ID 사용
+        user_id: currentUser.id, 
       });
       fetchPosts(); 
       setIsPostModalOpen(false); 
@@ -93,10 +96,13 @@ export default function App() {
     const newPicture = prompt("이미지 URL을 수정하세요 (선택 사항):", postToEdit.picture || "");
 
     try {
+      // **주의**: 백엔드 PUT 엔드포인트가 없으므로 임시로 PUT 요청만 시도합니다.
+      // main.py에 이 엔드포인트가 없으면 404가 발생합니다.
+      // 다만, 사용자 질문의 초점이 인증 로직이므로, 현재는 인증 로직만 집중적으로 수정합니다.
       await axios.put(`${API_URL}/posts/${postToEdit.id}`, {
         title: newTitle.trim(),
         picture: newPicture.trim() || null,
-        user_id: currentUser.id // 🔑 현재 사용자 ID
+        user_id: currentUser.id 
       });
       fetchPosts(); 
       setError('');
@@ -115,6 +121,7 @@ export default function App() {
     }
 
     try {
+      // **주의**: 백엔드 DELETE 엔드포인트가 없으므로 임시로 DELETE 요청만 시도합니다.
       await axios.delete(`${API_URL}/posts/${selectedPost.id}`);
       fetchPosts(); 
       setIsConfirmModalOpen(false); 
@@ -126,47 +133,60 @@ export default function App() {
     }
   };
 
-  // 🔑 회원가입 (POST /users)
+  // 🔑 회원가입 (POST /users) - 성공/실패 메시지 로직 개선
   const handleRegister = async (e) => {
     e.preventDefault();
-    setError('');
+    setRegisterError(''); // 모달 내부 오류 초기화
+    
+    // 비밀번호 길이 체크 등 클라이언트 측 유효성 검사 추가 가능
+    if (registerData.password.length < 4) {
+        setRegisterError('비밀번호는 4자 이상이어야 합니다.');
+        return;
+    }
+
     try {
-      // main.py의 /users 엔드포인트 사용
+      // main.py의 /users 엔드포인트 사용 (성공 시 200/201 응답)
       await axios.post(`${API_URL}/users`, registerData); 
+      
+      // ✅ 성공 로직: 데이터베이스에 넘어갔다면 성공으로 처리
       alert("회원가입이 완료되었습니다! 로그인해주세요.");
       setIsRegisterModalOpen(false);
-      setIsLoginModalOpen(true); // 회원가입 후 로그인 모달로 자동 전환
+      setIsLoginModalOpen(true); 
       setRegisterData({ user_name: '', email: '', password: '' });
+      setError(''); // 전역 오류 초기화
+
     } catch (err) {
-      const detail = err.response?.data?.detail || "회원가입에 실패했습니다.";
-      setError(detail);
+      // ❌ 실패 로직: 백엔드에서 에러 응답(400 등)이 왔을 경우
+      const detail = err.response?.data?.detail || "알 수 없는 이유로 회원가입에 실패했습니다.";
+      setRegisterError(detail); // 모달 내부에 오류 표시
       console.error(err);
     }
   };
 
-  // 🔑 로그인 (POST /login - main.py에 없으므로 임시로 /users 목록에서 찾기)
+  // 🔑 로그인 (POST /login - 임시로 /users 목록에서 찾기) - 오류 로직 개선
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError('');
+    setLoginError(''); // 모달 내부 오류 초기화
 
     try {
-      // **주의**: main.py에는 "/login" 엔드포인트가 없으므로,
-      // 임시로 "/users" 전체 목록을 불러와 이메일/비밀번호를 검증하는 로직을 사용합니다.
-      // 실제 앱에서는 백엔드에 전용 "/login" 엔드포인트를 구현해야 합니다.
+      // **주의**: main.py에 "/login" 엔드포인트가 없으므로, 임시로 전체 목록을 불러와 검증합니다.
       const response = await axios.get(`${API_URL}/users`);
       const user = response.data.find(u => u.email === loginData.email && u.password === loginData.password);
 
       if (user) {
-        setCurrentUser(user); // 사용자 정보 저장 (로그인 성공)
+        // ✅ 성공 로직
+        setCurrentUser(user); 
         setIsLoginModalOpen(false);
         setLoginData({ email: '', password: '' });
-        setError('');
+        setError(''); // 전역 오류 초기화
         alert(`${user.user_name}님, 환영합니다!`);
       } else {
-        setError('이메일 또는 비밀번호가 일치하지 않습니다.');
+        // ❌ 실패 로직: 사용자 정보를 찾지 못했을 때
+        setLoginError('이메일 또는 비밀번호가 일치하지 않습니다.');
       }
     } catch (err) {
-      setError('로그인 중 오류가 발생했습니다.');
+      // ❌ 실패 로직: API 통신 자체에 문제가 생겼을 때 (DB 연결 실패 등)
+      setLoginError('로그인 중 서버 통신 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
       console.error(err);
     }
   };
@@ -185,9 +205,6 @@ export default function App() {
 
   useEffect(() => {
     fetchPosts();
-    // 로컬 스토리지에서 사용자 정보를 로드하는 로직 (선택 사항)
-    // const storedUser = JSON.parse(localStorage.getItem('currentUser'));
-    // if (storedUser) setCurrentUser(storedUser);
   }, []);
 
   const handleOpenPostModal = () => {
@@ -214,15 +231,17 @@ export default function App() {
     setSelectedPost(null);
   };
   
-  // 🔑 모달 핸들러
+  // 🔑 모달 핸들러 - 모달을 열 때 내부 오류 초기화
   const handleOpenLoginModal = () => {
       setError('');
+      setLoginError(''); // 로그인 오류 초기화
       setLoginData({ email: '', password: '' });
       setIsLoginModalOpen(true);
   };
   
   const handleOpenRegisterModal = () => {
       setError('');
+      setRegisterError(''); // 회원가입 오류 초기화
       setRegisterData({ user_name: '', email: '', password: '' });
       setIsRegisterModalOpen(true);
   };
@@ -233,16 +252,12 @@ export default function App() {
   // ------------------------------------
 
   const PostItem = ({ post }) => {
-    // 🔑 현재 로그인된 사용자와 작성자 비교
     const isAuthor = currentUser && post.user_id === currentUser.id; 
-
-    // Date 객체로 변환
     const createdAtDate = new Date(post.created_at);
 
     return (
       <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md md:max-w-lg transition-transform transform hover:scale-[1.01] duration-300">
         <div className="flex items-center justify-between mb-3 border-b pb-2">
-          {/* 🔑 작성자 표시 로직 변경 */}
           <span className="text-sm font-semibold text-gray-700">
             작성자: {isAuthor ? `${currentUser.user_name} (나)` : `사용자 ID: ${post.user_id}`}
           </span>
@@ -295,7 +310,7 @@ export default function App() {
   return (
     <div className="bg-gray-50 min-h-screen flex flex-col items-center pt-0">
       
-      {/* Header (로그인/로그아웃 버튼 로직 변경) */}
+      {/* Header */}
       <header className="w-full bg-white shadow-md py-4 px-6 flex justify-between items-center z-10 sticky top-0">
         <div className="flex items-center space-x-6">
           <h1 className="text-2xl font-bold text-gray-800 text-left">게시판</h1>
@@ -339,7 +354,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* 에러 메시지 */}
+      {/* 전역 에러 메시지 */}
       {error && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-xl z-50 transition-opacity duration-300">
           <div className="flex justify-between items-center">
@@ -364,7 +379,6 @@ export default function App() {
             </div>
           ) : (
             posts.length > 0 ? (
-              // 1열로 내림차순 정렬된 게시글 목록
               posts.map(post => <PostItem key={post.id} post={post} />)
             ) : (
               <p className="text-gray-500 text-center py-16">아직 게시글이 없습니다. 첫 번째 게시글을 작성해주세요!</p>
@@ -380,7 +394,7 @@ export default function App() {
 
       {/* -------------------- Modals -------------------- */}
 
-      {/* Create Post Modal */}
+      {/* Create Post Modal (생략 - 변경 없음) */}
       {isPostModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg relative transform transition-all duration-300 scale-100">
@@ -389,7 +403,6 @@ export default function App() {
             </button>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">새 게시글 작성</h2>
             <form onSubmit={createPost} className="space-y-4">
-              {/* 🔑 작성자 필드 제거/수정 */}
               <p className="text-gray-700 font-medium">작성자: <span className="font-semibold text-blue-600">{currentUser?.user_name || '로그인 필요'}</span></p>
               <div>
                 <label htmlFor="image-url" className="block text-gray-700 font-medium mb-1">이미지 URL (선택 사항)</label>
@@ -412,7 +425,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Custom Confirmation Modal */}
+      {/* Custom Confirmation Modal (생략 - 변경 없음) */}
       {isConfirmModalOpen && selectedPost && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-xs relative">
@@ -437,7 +450,7 @@ export default function App() {
       )}
       
       
-      {/* 🔑 Register Modal (회원가입 모달) */}
+      {/* 🔑 Register Modal (회원가입 모달) - 오류 메시지 표시 추가 */}
       {isRegisterModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md relative transform transition-all duration-300 scale-100">
@@ -445,6 +458,14 @@ export default function App() {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">회원가입</h2>
+            
+            {/* ❌ 모달 내부 오류 메시지 */}
+            {registerError && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded-lg mb-4 text-sm">
+                    {registerError}
+                </div>
+            )}
+
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
                 <label htmlFor="reg-username" className="block text-gray-700 font-medium mb-1">사용자 이름</label>
@@ -495,7 +516,7 @@ export default function App() {
         </div>
       )}
       
-      {/* 🔑 Login Modal (로그인 모달) */}
+      {/* 🔑 Login Modal (로그인 모달) - 오류 메시지 표시 추가 */}
       {isLoginModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md relative transform transition-all duration-300 scale-100">
@@ -503,6 +524,14 @@ export default function App() {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">로그인</h2>
+            
+            {/* ❌ 모달 내부 오류 메시지 */}
+            {loginError && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded-lg mb-4 text-sm">
+                    {loginError}
+                </div>
+            )}
+
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label htmlFor="login-email" className="block text-gray-700 font-medium mb-1">이메일</label>
