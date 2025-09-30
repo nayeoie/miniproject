@@ -5,24 +5,32 @@ import axios from 'axios';
 const API_URL = 'http://localhost:8000';
 
 export default function App() {
+  // 게시글 관련 상태
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // 인증 관련 상태
+  // 실제 앱에서는 JWT 등의 토큰을 저장해야 하지만, 여기서는 임시로 user 객체를 저장합니다.
+  const [currentUser, setCurrentUser] = useState(null); 
 
-  // 게시글 작성 모달 상태
+  // 모달 상태
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false); // 🔑 로그인 모달
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false); // 🔑 회원가입 모달
+  
+  // 데이터 상태
   const [newPostData, setNewPostData] = useState({ 
-    username: '익명의 사용자', // 표시용
+    // username: '익명의 사용자', // 이제 사용하지 않음 (currentUser.user_name 사용)
     imageUrl: '', // 백엔드 Post 모델의 'picture' 필드에 해당
     description: '', // 백엔드 Post 모델의 'title' 필드에 해당
   });
-
-  // 수정/삭제 확인 모달 상태
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [selectedPost, setSelectedPost] = useState(null); // 선택된 게시글 데이터
-
-  // 임시 사용자 ID (백엔드 user_id를 1로 고정하여 임시 연동)
-  const TEMP_USER_ID = 1;
+  const [selectedPost, setSelectedPost] = useState(null); 
+  
+  // 🔑 인증 데이터 상태
+  const [loginData, setLoginData] = useState({ email: '', password: '' });
+  const [registerData, setRegisterData] = useState({ user_name: '', email: '', password: '' });
 
 
   // ------------------------------------
@@ -33,9 +41,8 @@ export default function App() {
   const fetchPosts = async () => {
     try {
       setLoading(true);
-      // 백엔드가 created_at 내림차순으로 정렬해서 반환한다고 가정
       const response = await axios.get(`${API_URL}/posts`);
-      setPosts(response.data);
+      setPosts(response.data.reverse()); // 최신순 (FastAPI가 정렬을 제공하지 않는다면 프론트에서 임시 처리)
       setError('');
     } catch (err) {
       setError('게시글을 불러오는 데 실패했습니다.');
@@ -48,21 +55,24 @@ export default function App() {
   // 새로운 게시글 생성 (POST /posts)
   const createPost = async (e) => {
     e.preventDefault();
+    if (!currentUser) {
+        setError('로그인 후 이용해주세요.');
+        return;
+    }
     if (!newPostData.description.trim()) {
       setError('설명을 입력해주세요.');
       return;
     }
 
     try {
-      // 프론트엔드 필드명을 백엔드 Post 모델 필드에 맞게 매핑하여 전송
       await axios.post(`${API_URL}/posts`, {
-        title: newPostData.description.trim(), // description -> title
-        picture: newPostData.imageUrl.trim() || null, // imageUrl -> picture
-        user_id: TEMP_USER_ID, // 임시 사용자 ID 사용
+        title: newPostData.description.trim(), 
+        picture: newPostData.imageUrl.trim() || null, 
+        user_id: currentUser.id, // 🔑 현재 로그인된 사용자 ID 사용
       });
-      fetchPosts(); // 목록 새로고침
-      setIsPostModalOpen(false); // 모달 닫기
-      setNewPostData({ username: '익명의 사용자', imageUrl: '', description: '' });
+      fetchPosts(); 
+      setIsPostModalOpen(false); 
+      setNewPostData({ imageUrl: '', description: '' });
       setError('');
     } catch (err) {
       setError('게시글 작성에 실패했습니다.');
@@ -72,6 +82,11 @@ export default function App() {
 
   // 게시글 수정 (PUT /posts/{id})
   const handleEdit = async (postToEdit) => {
+    if (!currentUser || postToEdit.user_id !== currentUser.id) {
+        setError('수정 권한이 없습니다.');
+        return;
+    }
+    
     const newTitle = prompt("게시글 설명을 수정하세요:", postToEdit.title);
     if (newTitle === null) return;
     
@@ -81,9 +96,9 @@ export default function App() {
       await axios.put(`${API_URL}/posts/${postToEdit.id}`, {
         title: newTitle.trim(),
         picture: newPicture.trim() || null,
-        user_id: TEMP_USER_ID
+        user_id: currentUser.id // 🔑 현재 사용자 ID
       });
-      fetchPosts(); // 목록 새로고침
+      fetchPosts(); 
       setError('');
     } catch (err) {
       setError('게시글 수정에 실패했습니다.');
@@ -91,21 +106,76 @@ export default function App() {
     }
   };
 
-
   // 게시글 삭제 (DELETE /posts/{id})
   const handleDelete = async () => {
     if (!selectedPost) return;
+    if (!currentUser || selectedPost.user_id !== currentUser.id) {
+        setError('삭제 권한이 없습니다.');
+        return;
+    }
 
     try {
       await axios.delete(`${API_URL}/posts/${selectedPost.id}`);
-      fetchPosts(); // 목록 새로고침
-      setIsConfirmModalOpen(false); // 모달 닫기
+      fetchPosts(); 
+      setIsConfirmModalOpen(false); 
       setSelectedPost(null);
       setError('');
     } catch (err) {
       setError('게시글 삭제에 실패했습니다.');
       console.error(err);
     }
+  };
+
+  // 🔑 회원가입 (POST /users)
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      // main.py의 /users 엔드포인트 사용
+      await axios.post(`${API_URL}/users`, registerData); 
+      alert("회원가입이 완료되었습니다! 로그인해주세요.");
+      setIsRegisterModalOpen(false);
+      setIsLoginModalOpen(true); // 회원가입 후 로그인 모달로 자동 전환
+      setRegisterData({ user_name: '', email: '', password: '' });
+    } catch (err) {
+      const detail = err.response?.data?.detail || "회원가입에 실패했습니다.";
+      setError(detail);
+      console.error(err);
+    }
+  };
+
+  // 🔑 로그인 (POST /login - main.py에 없으므로 임시로 /users 목록에서 찾기)
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    try {
+      // **주의**: main.py에는 "/login" 엔드포인트가 없으므로,
+      // 임시로 "/users" 전체 목록을 불러와 이메일/비밀번호를 검증하는 로직을 사용합니다.
+      // 실제 앱에서는 백엔드에 전용 "/login" 엔드포인트를 구현해야 합니다.
+      const response = await axios.get(`${API_URL}/users`);
+      const user = response.data.find(u => u.email === loginData.email && u.password === loginData.password);
+
+      if (user) {
+        setCurrentUser(user); // 사용자 정보 저장 (로그인 성공)
+        setIsLoginModalOpen(false);
+        setLoginData({ email: '', password: '' });
+        setError('');
+        alert(`${user.user_name}님, 환영합니다!`);
+      } else {
+        setError('이메일 또는 비밀번호가 일치하지 않습니다.');
+      }
+    } catch (err) {
+      setError('로그인 중 오류가 발생했습니다.');
+      console.error(err);
+    }
+  };
+  
+  // 🔑 로그아웃
+  const handleLogout = () => {
+      setCurrentUser(null);
+      alert('로그아웃 되었습니다.');
+      setError('');
   };
 
 
@@ -115,15 +185,26 @@ export default function App() {
 
   useEffect(() => {
     fetchPosts();
+    // 로컬 스토리지에서 사용자 정보를 로드하는 로직 (선택 사항)
+    // const storedUser = JSON.parse(localStorage.getItem('currentUser'));
+    // if (storedUser) setCurrentUser(storedUser);
   }, []);
 
   const handleOpenPostModal = () => {
-    setNewPostData({ username: '익명의 사용자', imageUrl: '', description: '' });
+    if (!currentUser) {
+        setError('로그인 후 게시글을 작성할 수 있습니다.');
+        return;
+    }
+    setNewPostData({ imageUrl: '', description: '' });
     setError('');
     setIsPostModalOpen(true);
   };
 
   const handleOpenConfirmModal = (post) => {
+    if (!currentUser || post.user_id !== currentUser.id) {
+        setError('삭제 권한이 없습니다.');
+        return;
+    }
     setSelectedPost(post);
     setIsConfirmModalOpen(true);
   };
@@ -132,14 +213,28 @@ export default function App() {
     setIsConfirmModalOpen(false);
     setSelectedPost(null);
   };
+  
+  // 🔑 모달 핸들러
+  const handleOpenLoginModal = () => {
+      setError('');
+      setLoginData({ email: '', password: '' });
+      setIsLoginModalOpen(true);
+  };
+  
+  const handleOpenRegisterModal = () => {
+      setError('');
+      setRegisterData({ user_name: '', email: '', password: '' });
+      setIsRegisterModalOpen(true);
+  };
+
 
   // ------------------------------------
   // 3. 컴포넌트
   // ------------------------------------
 
   const PostItem = ({ post }) => {
-    // 임시 사용자 ID 비교 로직
-    const isAuthor = post.user_id === TEMP_USER_ID; 
+    // 🔑 현재 로그인된 사용자와 작성자 비교
+    const isAuthor = currentUser && post.user_id === currentUser.id; 
 
     // Date 객체로 변환
     const createdAtDate = new Date(post.created_at);
@@ -147,7 +242,10 @@ export default function App() {
     return (
       <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-md md:max-w-lg transition-transform transform hover:scale-[1.01] duration-300">
         <div className="flex items-center justify-between mb-3 border-b pb-2">
-          <span className="text-sm font-semibold text-gray-700">작성자: {post.user_id === TEMP_USER_ID ? "나 (TEMP_USER_1)" : `사용자 ID: ${post.user_id}`}</span>
+          {/* 🔑 작성자 표시 로직 변경 */}
+          <span className="text-sm font-semibold text-gray-700">
+            작성자: {isAuthor ? `${currentUser.user_name} (나)` : `사용자 ID: ${post.user_id}`}
+          </span>
           <span className="text-xs text-gray-400">
             {createdAtDate.toLocaleString('ko-KR')}
           </span>
@@ -159,7 +257,7 @@ export default function App() {
             <img 
               src={post.picture} 
               alt="게시글 이미지" 
-              className="w-full h-96 object-cover" // 400x400px 대신 Tailwind h-96 (약 384px) 사용
+              className="w-full h-96 object-cover" 
               onError={(e) => { e.target.onerror = null; e.target.src='https://placehold.co/400x400/CCCCCC/333333?text=이미지%20없음'; }} 
             />
           </div>
@@ -197,19 +295,45 @@ export default function App() {
   return (
     <div className="bg-gray-50 min-h-screen flex flex-col items-center pt-0">
       
-      {/* Header (왼쪽 정렬) */}
+      {/* Header (로그인/로그아웃 버튼 로직 변경) */}
       <header className="w-full bg-white shadow-md py-4 px-6 flex justify-between items-center z-10 sticky top-0">
         <div className="flex items-center space-x-6">
           <h1 className="text-2xl font-bold text-gray-800 text-left">게시판</h1>
           <nav className="flex space-x-4 text-left">
             <a href="#" className="text-gray-600 hover:text-gray-900 transition-colors font-medium">게시판</a>
-            <a href="#" className="text-gray-400 hover:text-gray-600 transition-colors">로그인</a>
-            <a href="#" className="text-gray-400 hover:text-gray-600 transition-colors">회원가입</a>
+            {/* 🔑 로그인 상태에 따라 버튼 표시 */}
+            {currentUser ? (
+                <>
+                    <span className="text-gray-600 font-medium">{currentUser.user_name}님</span>
+                    <button 
+                        onClick={handleLogout} 
+                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                        로그아웃
+                    </button>
+                </>
+            ) : (
+                <>
+                    <button 
+                        onClick={handleOpenLoginModal} 
+                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                        로그인
+                    </button>
+                    <button 
+                        onClick={handleOpenRegisterModal} 
+                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                        회원가입
+                    </button>
+                </>
+            )}
           </nav>
         </div>
         <button 
           onClick={handleOpenPostModal} 
-          className="bg-blue-600 text-white py-2 px-4 rounded-full font-semibold shadow-md hover:bg-blue-700 transition-colors text-sm"
+          className={`py-2 px-4 rounded-full font-semibold shadow-md transition-colors text-sm ${currentUser ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-400 text-white cursor-not-allowed'}`}
+          disabled={!currentUser}
         >
           게시글 작성
         </button>
@@ -265,10 +389,8 @@ export default function App() {
             </button>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">새 게시글 작성</h2>
             <form onSubmit={createPost} className="space-y-4">
-              <div>
-                <label htmlFor="username" className="block text-gray-700 font-medium mb-1">작성자 (표시용)</label>
-                <input type="text" id="username" value={newPostData.username} onChange={e => setNewPostData({...newPostData, username: e.target.value})} className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="익명의 사용자"/>
-              </div>
+              {/* 🔑 작성자 필드 제거/수정 */}
+              <p className="text-gray-700 font-medium">작성자: <span className="font-semibold text-blue-600">{currentUser?.user_name || '로그인 필요'}</span></p>
               <div>
                 <label htmlFor="image-url" className="block text-gray-700 font-medium mb-1">이미지 URL (선택 사항)</label>
                 <input type="url" id="image-url" value={newPostData.imageUrl} onChange={e => setNewPostData({...newPostData, imageUrl: e.target.value})} className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="https://image-url.com/photo.jpg"/>
@@ -313,6 +435,112 @@ export default function App() {
           </div>
         </div>
       )}
+      
+      
+      {/* 🔑 Register Modal (회원가입 모달) */}
+      {isRegisterModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md relative transform transition-all duration-300 scale-100">
+            <button onClick={() => setIsRegisterModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">회원가입</h2>
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div>
+                <label htmlFor="reg-username" className="block text-gray-700 font-medium mb-1">사용자 이름</label>
+                <input 
+                  type="text" 
+                  id="reg-username" 
+                  value={registerData.user_name} 
+                  onChange={e => setRegisterData({...registerData, user_name: e.target.value})} 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                  placeholder="아이디" 
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="reg-email" className="block text-gray-700 font-medium mb-1">이메일</label>
+                <input 
+                  type="email" 
+                  id="reg-email" 
+                  value={registerData.email} 
+                  onChange={e => setRegisterData({...registerData, email: e.target.value})} 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                  placeholder="user@example.com" 
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="reg-password" className="block text-gray-700 font-medium mb-1">비밀번호</label>
+                <input 
+                  type="password" 
+                  id="reg-password" 
+                  value={registerData.password} 
+                  onChange={e => setRegisterData({...registerData, password: e.target.value})} 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                  placeholder="********" 
+                  required
+                />
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button type="button" onClick={() => setIsRegisterModalOpen(false)} className="px-5 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors font-semibold">
+                  취소
+                </button>
+                <button type="submit" className="px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors">
+                  가입하기
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      {/* 🔑 Login Modal (로그인 모달) */}
+      {isLoginModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md relative transform transition-all duration-300 scale-100">
+            <button onClick={() => setIsLoginModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">로그인</h2>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label htmlFor="login-email" className="block text-gray-700 font-medium mb-1">이메일</label>
+                <input 
+                  type="email" 
+                  id="login-email" 
+                  value={loginData.email} 
+                  onChange={e => setLoginData({...loginData, email: e.target.value})} 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                  placeholder="user@example.com" 
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="login-password" className="block text-gray-700 font-medium mb-1">비밀번호</label>
+                <input 
+                  type="password" 
+                  id="login-password" 
+                  value={loginData.password} 
+                  onChange={e => setLoginData({...loginData, password: e.target.value})} 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                  placeholder="********" 
+                  required
+                />
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button type="button" onClick={() => setIsLoginModalOpen(false)} className="px-5 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors font-semibold">
+                  취소
+                </button>
+                <button type="submit" className="px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors">
+                  로그인
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
     </div>
   );
 }
