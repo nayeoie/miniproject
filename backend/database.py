@@ -4,7 +4,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # ⚠️ 본인 MySQL 계정/비밀번호/DB명에 맞게 수정
-DATABASE_URL = "mysql+pymysql://root:doitmysql@localhost:3306/idol_board"
+DATABASE_URL = "mysql+pymysql://root:qpwl7584@localhost:3306/idol_board"
 
 # DB 엔진 생성
 engine = create_engine(DATABASE_URL, echo=True, pool_pre_ping=True, pool_recycle=300)
