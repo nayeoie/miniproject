@@ -41,7 +41,7 @@ class UserResponse(UserBase):
 class PostBase(BaseModel):
     title: str
     picture: Optional[str] = None
-    completed: bool = False
+    # completed: bool = False
     user_id: int
 
 # Post 생성 시 필요한 데이터
