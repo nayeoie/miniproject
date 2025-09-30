@@ -168,11 +168,16 @@ export default function App() {
     e.preventDefault();
     setLoginError(''); // 모달 내부 오류 초기화
 
+    const inputEmail = loginData.email.trim();
+    const inputPassword = loginData.password.trim();
+   
     try {
       // **주의**: main.py에 "/login" 엔드포인트가 없으므로, 임시로 전체 목록을 불러와 검증합니다.
       const response = await axios.get(`${API_URL}/users`);
-      const user = response.data.find(u => u.email === loginData.email && u.password === loginData.password);
-
+      const user = response.data.find(u => 
+        u.email === inputEmail && 
+        u.password === inputPassword // 👈 DB값과 입력값 비교
+      );
       if (user) {
         // ✅ 성공 로직
         setCurrentUser(user); 
